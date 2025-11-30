@@ -13,8 +13,10 @@ from tracker import (
     load_items,
     load_history,
     save_history,
-    fetch_price,
+    fetch_amazon_price,
+    fetch_myntra_price,
     send_notification,
+    process_item,
 )
 import subprocess
 from bs4 import BeautifulSoup
@@ -187,7 +189,7 @@ class TestSaveHistory:
         assert saved == history_data
 
 
-class TestFetchPrice:
+class TestFetchAmazonPrice:
     def test_successful_fetch(self):
         mock_html = '<div class="a-price-whole">1,299</div>'
         mock_response = MagicMock()
@@ -195,7 +197,7 @@ class TestFetchPrice:
         mock_response.content = mock_html.encode()
 
         with patch('tracker.requests.get', return_value=mock_response):
-            price = fetch_price("http://example.com")
+            price = fetch_amazon_price("http://example.com")
 
         assert price == 1299.0
 
@@ -206,7 +208,7 @@ class TestFetchPrice:
         with patch('tracker.requests.get', return_value=mock_response):
             # Patch sleep to avoid waiting
             with patch("time.sleep"):
-                price = fetch_price("http://example.com", max_retries=1)
+                price = fetch_amazon_price("http://example.com", max_retries=1)
 
         assert price is None
         assert "503" in caplog.text
@@ -217,10 +219,108 @@ class TestFetchPrice:
             side_effect=requests.RequestException("Network error"),
         ):
             with patch("time.sleep"):
-                price = fetch_price("http://example.com", max_retries=1)
+                price = fetch_amazon_price("http://example.com", max_retries=1)
 
         assert price is None
         assert "Network error" in caplog.text
+
+
+class TestFetchMyntraPrice:
+    def test_successful_myntra_fetch(self):
+        mock_html = '''
+        <html>
+        <script>
+        window.__myx = {"pdpData": {"price": {"discounted": 1895, "mrp": 2495}, "name": "Test Product"}};
+        </script>
+        </html>
+        '''
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = mock_html.encode()
+
+        with patch('tracker.requests.get', return_value=mock_response):
+            price = fetch_myntra_price("http://myntra.com/test")
+
+        assert price == 1895.0
+
+    def test_myntra_mrp_fallback(self):
+        """Test that MRP is used when discounted price is 0."""
+        mock_html = '''
+        <script>
+        window.__myx = {"pdpData": {"price": {"discounted": 0, "mrp": 2495}}};
+        </script>
+        '''
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = mock_html.encode()
+
+        with patch('tracker.requests.get', return_value=mock_response):
+            price = fetch_myntra_price("http://myntra.com/test")
+
+        assert price == 2495.0
+
+    def test_myntra_no_price_found(self, caplog):
+        mock_html = '<html><body>No price data</body></html>'
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = mock_html.encode()
+
+        with patch('tracker.requests.get', return_value=mock_response):
+            with patch("time.sleep"):
+                price = fetch_myntra_price("http://myntra.com/test", max_retries=1)
+
+        assert price is None
+        assert "Price not found in Myntra page" in caplog.text
+
+
+class TestProcessItem:
+    @patch('tracker.fetch_amazon_price', return_value=1000.0)
+    @patch('tracker.fetch_myntra_price')
+    def test_process_amazon_item(self, mock_myntra, mock_amazon):
+        item = {
+            "name": "Test Amazon Item",
+            "url": "http://amazon.in/test",
+            "threshold": 500,
+            "Source": "amazon"
+        }
+        history = {}
+        
+        process_item(item, history)
+        
+        mock_amazon.assert_called_once()
+        mock_myntra.assert_not_called()
+
+    @patch('tracker.fetch_amazon_price')
+    @patch('tracker.fetch_myntra_price', return_value=1895.0)
+    def test_process_myntra_item(self, mock_myntra, mock_amazon):
+        item = {
+            "name": "Test Myntra Item",
+            "url": "http://myntra.com/test",
+            "threshold": 2000,
+            "Source": "myntra"
+        }
+        history = {}
+        
+        process_item(item, history)
+        
+        mock_myntra.assert_called_once()
+        mock_amazon.assert_not_called()
+
+    @patch('tracker.fetch_amazon_price', return_value=1000.0)
+    @patch('tracker.fetch_myntra_price')
+    def test_process_default_source(self, mock_myntra, mock_amazon):
+        """Test that missing Source defaults to Amazon."""
+        item = {
+            "name": "Test Item",
+            "url": "http://amazon.in/test",
+            "threshold": 500
+        }
+        history = {}
+        
+        process_item(item, history)
+        
+        mock_amazon.assert_called_once()
+        mock_myntra.assert_not_called()
 
 
 class TestSendNotification:
