@@ -1,4 +1,5 @@
 import json
+import sys
 import time
 import random
 import requests
@@ -17,10 +18,18 @@ HISTORY_FILE = "price_history.json"
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 
 # Setup logging
+# Force UTF-8 for stdout/stderr to avoid UnicodeEncodeError on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 logging.basicConfig(
     level=logging.INFO,
     format=LOG_FORMAT,
-    handlers=[logging.FileHandler("tracker.log"), logging.StreamHandler()],
+    handlers=[
+        logging.FileHandler("tracker.log", encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -35,13 +44,15 @@ def send_notification(title, message):
             script = f'display notification "{message}" with title "{title}"'
             subprocess.run(["osascript", "-e", script], check=False)
         elif system == "Windows":
-            subprocess.run(
+            # Use Popen for non-blocking execution and suppress output
+            subprocess.Popen(
                 [
                     "powershell",
                     "-Command",
                     f'[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms"); [System.Windows.Forms.MessageBox]::Show("{message}", "{title}")',
                 ],
-                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
     except FileNotFoundError:
         logger.warning(f"Notification command not found for {system}.")
@@ -274,6 +285,8 @@ def run_tracker():
 
     except KeyboardInterrupt:
         logger.info("Stopping tracker...")
+    except Exception as e:
+        logger.exception(f"Unexpected error: {e}")
 
 
 if __name__ == "__main__":

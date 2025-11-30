@@ -8,5 +8,10 @@
     "name": "Calvin Klein Men Jeans",
     "url": "https://www.amazon.in/Calvin-Klein-Jeans-J3238611BZ-Multicolor/dp/B0BTFFN2MJ/ref=sl_ob_desktop_dp_0_1_v2?_encoding=UTF8&psc=1",
     "threshold": 6000
+  },
+  {
+    "name": "TIMEX Marlin",
+    "url": "https://www.amazon.in/TIMEX-Stainless-Bracelet-Resistant-Watches/dp/B0F9TVQCRB?sbo=RZvfv%2F%2FHxDF%2BO5021pAnSA%3D%3D&sr=8-5",
+    "threshold": 15000
   }
 ]

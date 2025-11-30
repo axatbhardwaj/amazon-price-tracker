@@ -14,7 +14,9 @@ from tracker import (
     load_history,
     save_history,
     fetch_price,
+    send_notification,
 )
+import subprocess
 from bs4 import BeautifulSoup
 
 
@@ -204,7 +206,7 @@ class TestFetchPrice:
         with patch('tracker.requests.get', return_value=mock_response):
             # Patch sleep to avoid waiting
             with patch("time.sleep"):
-                price = fetch_price("http://example.com", retries=1)
+                price = fetch_price("http://example.com", max_retries=1)
 
         assert price is None
         assert "503" in caplog.text
@@ -215,7 +217,41 @@ class TestFetchPrice:
             side_effect=requests.RequestException("Network error"),
         ):
             with patch("time.sleep"):
-                price = fetch_price("http://example.com", retries=1)
+                price = fetch_price("http://example.com", max_retries=1)
 
         assert price is None
         assert "Network error" in caplog.text
+
+
+class TestSendNotification:
+    @patch("tracker.platform.system", return_value="Windows")
+    @patch("tracker.subprocess.Popen")
+    def test_notification_windows(self, mock_popen, mock_system):
+        send_notification("Title", "Message")
+        
+        mock_popen.assert_called_once()
+        args, kwargs = mock_popen.call_args
+        
+        # Check command structure
+        cmd = args[0]
+        assert cmd[0] == "powershell"
+        assert 'MessageBox' in cmd[2]
+        assert "Title" in cmd[2]
+        assert "Message" in cmd[2]
+        
+        # Check non-blocking flags
+        assert kwargs.get("stdout") == subprocess.DEVNULL
+        assert kwargs.get("stderr") == subprocess.DEVNULL
+
+    @patch("tracker.platform.system", return_value="Linux")
+    @patch("tracker.subprocess.run")
+    def test_notification_linux(self, mock_run, mock_system):
+        send_notification("Title", "Message")
+        
+        mock_run.assert_called_once()
+        args, _ = mock_run.call_args
+        cmd = args[0]
+        
+        assert cmd[0] == "notify-send"
+        assert cmd[1] == "Title"
+        assert cmd[2] == "Message"
