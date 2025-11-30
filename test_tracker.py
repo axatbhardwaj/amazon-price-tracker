@@ -1,8 +1,9 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from io import StringIO
 import json
 import os
+import logging
+import requests
 
 from tracker import (
     parse_price_text,
@@ -52,66 +53,67 @@ class TestGetPrice:
 
 
 class TestCheckPriceDrop:
-    def test_price_dropped(self, capsys):
+
+    def test_price_dropped(self, caplog):
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
-        check_price_drop("Test Item", 800.0, history, 500.0)
-        
-        captured = capsys.readouterr()
-        assert "PRICE DROP ALERT" in captured.out
-        assert "1000.0" in captured.out
-        assert "800.0" in captured.out
+        with caplog.at_level(logging.INFO):
+            check_price_drop("Test Item", 800.0, history, 500.0)
 
-    def test_price_increased(self, capsys):
+        assert "PRICE DROP" in caplog.text
+        assert "1000.0" in caplog.text
+        assert "800.0" in caplog.text
+
+    def test_price_increased(self, caplog):
         history = {
             "Test Item": [{"price": 800.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        caplog.clear()
         check_price_drop("Test Item", 1000.0, history, 500.0)
-        
-        captured = capsys.readouterr()
-        assert "PRICE DROP ALERT" not in captured.out
 
-    def test_price_unchanged(self, capsys):
+        assert "PRICE DROP" not in caplog.text
+
+    def test_price_unchanged(self, caplog):
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        caplog.clear()
         check_price_drop("Test Item", 1000.0, history, 500.0)
-        
-        captured = capsys.readouterr()
-        assert "PRICE DROP ALERT" not in captured.out
 
-    def test_threshold_reached(self, capsys):
+        assert "PRICE DROP" not in caplog.text
+
+    def test_threshold_reached(self, caplog):
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
-        check_price_drop("Test Item", 450.0, history, 500.0)
-        
-        captured = capsys.readouterr()
-        assert "TARGET REACHED" in captured.out
+        with caplog.at_level(logging.INFO):
+            check_price_drop("Test Item", 450.0, history, 500.0)
 
-    def test_threshold_not_reached(self, capsys):
+        assert "TARGET REACHED" in caplog.text
+
+    def test_threshold_not_reached(self, caplog):
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        caplog.clear()
         check_price_drop("Test Item", 600.0, history, 500.0)
-        
-        captured = capsys.readouterr()
-        assert "TARGET REACHED" not in captured.out
 
-    def test_no_history(self, capsys):
+        assert "TARGET REACHED" not in caplog.text
+
+    def test_no_history(self, caplog):
         history = {}
+        caplog.clear()
         check_price_drop("Test Item", 800.0, history, 500.0)
-        
-        captured = capsys.readouterr()
-        assert captured.out == ""
 
-    def test_empty_item_history(self, capsys):
+        assert caplog.text == ""
+
+    def test_empty_item_history(self, caplog):
         history = {"Test Item": []}
+        caplog.clear()
         check_price_drop("Test Item", 800.0, history, 500.0)
-        
-        captured = capsys.readouterr()
-        assert captured.out == ""
+
+        assert caplog.text == ""
 
 
 class TestUpdatePriceHistory:
@@ -139,19 +141,18 @@ class TestLoadItems:
         items_file = tmp_path / "items.json"
         items_data = [{"name": "Test", "url": "http://test.com", "threshold": 100}]
         items_file.write_text(json.dumps(items_data))
-        
+
         with patch('tracker.ITEMS_FILE', str(items_file)):
             result = load_items()
-        
+
         assert result == items_data
 
-    def test_file_not_found(self, capsys):
+    def test_file_not_found(self, caplog):
         with patch('tracker.ITEMS_FILE', 'nonexistent.json'):
             result = load_items()
-        
+
         assert result == []
-        captured = capsys.readouterr()
-        assert "not found" in captured.out
+        assert "not found" in caplog.text
 
 
 class TestLoadHistory:
@@ -190,28 +191,31 @@ class TestFetchPrice:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = mock_html.encode()
-        
+
         with patch('tracker.requests.get', return_value=mock_response):
             price = fetch_price("http://example.com")
-        
+
         assert price == 1299.0
 
-    def test_failed_fetch_status(self, capsys):
+    def test_failed_fetch_status(self, caplog):
         mock_response = MagicMock()
         mock_response.status_code = 503
-        
+
         with patch('tracker.requests.get', return_value=mock_response):
-            price = fetch_price("http://example.com")
-        
-        assert price is None
-        captured = capsys.readouterr()
-        assert "503" in captured.out
+            # Patch sleep to avoid waiting
+            with patch("time.sleep"):
+                price = fetch_price("http://example.com", retries=1)
 
-    def test_network_error(self, capsys):
-        with patch('tracker.requests.get', side_effect=Exception("Network error")):
-            price = fetch_price("http://example.com")
-        
         assert price is None
-        captured = capsys.readouterr()
-        assert "Error" in captured.out
+        assert "503" in caplog.text
 
+    def test_network_error(self, caplog):
+        with patch(
+            "tracker.requests.get",
+            side_effect=requests.RequestException("Network error"),
+        ):
+            with patch("time.sleep"):
+                price = fetch_price("http://example.com", retries=1)
+
+        assert price is None
+        assert "Network error" in caplog.text
