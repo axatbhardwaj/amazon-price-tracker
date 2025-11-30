@@ -6,17 +6,20 @@ import logging
 import requests
 
 from tracker import (
-    parse_price_text,
-    get_price,
     check_price_drop,
     update_price_history,
     load_items,
     load_history,
     save_history,
-    fetch_amazon_price,
-    fetch_myntra_price,
     send_notification,
     process_item,
+)
+from scrapers import (
+    parse_price_text,
+    get_price,
+    fetch_amazon_price,
+    fetch_myntra_price,
+    fetch_flipkart_price,
 )
 import subprocess
 from bs4 import BeautifulSoup
@@ -271,12 +274,63 @@ class TestFetchMyntraPrice:
 
         assert price is None
         assert "Price not found in Myntra page" in caplog.text
+        
+        
+class TestFetchFlipkartPrice:
+    def test_successful_flipkart_json_ld(self):
+        mock_html = '''
+        <html>
+        <script type="application/ld+json">
+        [
+            {
+                "@type": "Product",
+                "offers": {
+                    "price": "12999"
+                }
+            }
+        ]
+        </script>
+        </html>
+        '''
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = mock_html.encode()
+
+        with patch('tracker.requests.get', return_value=mock_response):
+            price = fetch_flipkart_price("http://flipkart.com/test")
+
+        assert price == 12999.0
+
+    def test_successful_flipkart_selector(self):
+        mock_html = '<div class="Nx9bqj CxhGGd">₹12,999</div>'
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = mock_html.encode()
+
+        with patch('tracker.requests.get', return_value=mock_response):
+            price = fetch_flipkart_price("http://flipkart.com/test")
+
+        assert price == 12999.0
+
+    def test_flipkart_no_price_found(self, caplog):
+        mock_html = '<html><body>No price data</body></html>'
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = mock_html.encode()
+
+        with patch('tracker.requests.get', return_value=mock_response):
+            with patch("time.sleep"):
+                price = fetch_flipkart_price("http://flipkart.com/test", max_retries=1)
+
+        assert price is None
+        assert "Price not found in Flipkart page" in caplog.text
 
 
 class TestProcessItem:
     @patch('tracker.fetch_amazon_price', return_value=1000.0)
     @patch('tracker.fetch_myntra_price')
-    def test_process_amazon_item(self, mock_myntra, mock_amazon):
+    @patch('tracker.fetch_flipkart_price')
+    def test_process_amazon_item(self, mock_flipkart, mock_myntra, mock_amazon):
         item = {
             "name": "Test Amazon Item",
             "url": "http://amazon.in/test",
@@ -289,10 +343,12 @@ class TestProcessItem:
         
         mock_amazon.assert_called_once()
         mock_myntra.assert_not_called()
+        mock_flipkart.assert_not_called()
 
     @patch('tracker.fetch_amazon_price')
     @patch('tracker.fetch_myntra_price', return_value=1895.0)
-    def test_process_myntra_item(self, mock_myntra, mock_amazon):
+    @patch('tracker.fetch_flipkart_price')
+    def test_process_myntra_item(self, mock_flipkart, mock_myntra, mock_amazon):
         item = {
             "name": "Test Myntra Item",
             "url": "http://myntra.com/test",
@@ -305,10 +361,30 @@ class TestProcessItem:
         
         mock_myntra.assert_called_once()
         mock_amazon.assert_not_called()
+        mock_flipkart.assert_not_called()
+
+    @patch('tracker.fetch_amazon_price')
+    @patch('tracker.fetch_myntra_price')
+    @patch('tracker.fetch_flipkart_price', return_value=12999.0)
+    def test_process_flipkart_item(self, mock_flipkart, mock_myntra, mock_amazon):
+        item = {
+            "name": "Test Flipkart Item",
+            "url": "http://flipkart.com/test",
+            "threshold": 10000,
+            "Source": "flipkart"
+        }
+        history = {}
+        
+        process_item(item, history)
+        
+        mock_flipkart.assert_called_once()
+        mock_amazon.assert_not_called()
+        mock_myntra.assert_not_called()
 
     @patch('tracker.fetch_amazon_price', return_value=1000.0)
     @patch('tracker.fetch_myntra_price')
-    def test_process_default_source(self, mock_myntra, mock_amazon):
+    @patch('tracker.fetch_flipkart_price')
+    def test_process_default_source(self, mock_flipkart, mock_myntra, mock_amazon):
         """Test that missing Source defaults to Amazon."""
         item = {
             "name": "Test Item",
@@ -321,6 +397,7 @@ class TestProcessItem:
         
         mock_amazon.assert_called_once()
         mock_myntra.assert_not_called()
+        mock_flipkart.assert_not_called()
 
 
 class TestSendNotification:

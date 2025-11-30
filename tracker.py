@@ -10,7 +10,11 @@ import shutil
 import subprocess
 import platform
 from datetime import datetime
-from bs4 import BeautifulSoup
+from scrapers import (
+    fetch_amazon_price,
+    fetch_flipkart_price,
+    fetch_myntra_price,
+)
 
 # Configuration
 ITEMS_FILE = "items.json"
@@ -23,14 +27,16 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT,
-    handlers=[
-        logging.FileHandler("tracker.log", encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ],
-)
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format=LOG_FORMAT,
+        handlers=[
+            logging.FileHandler("tracker.log", encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ],
+    )
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,15 +63,6 @@ def send_notification(title, message):
     except FileNotFoundError:
         logger.warning(f"Notification command not found for {system}.")
 
-
-# List of User-Agents to rotate
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
-]
 
 def load_items():
     """Load items to track from JSON config."""
@@ -105,209 +102,6 @@ def save_history(history):
         logger.error(f"Failed to save history: {e}")
         if os.path.exists(temp_name):
             os.remove(temp_name)
-
-def parse_price_text(price_text):
-    """Parse price text and return float value."""
-    # Remove currency symbols, commas, spaces
-    # Handle case with multiple dots (keep only the last one if looks like decimal)
-    clean_price = ''.join(c for c in price_text if c.isdigit() or c == '.')
-
-    if not clean_price:
-        return None
-
-    # If multiple dots, assumption: last one is decimal, others are separators (rare in scraping clean output but possible)
-    if clean_price.count(".") > 1:
-        clean_price = clean_price.replace(".", "", clean_price.count(".") - 1)
-
-    try:
-        return float(clean_price)
-    except ValueError:
-        return None
-
-def get_price(soup):
-    """Extract price from BeautifulSoup object using common Amazon selectors."""
-    selectors = [
-        # Amazon India specific
-        '.a-price-whole',
-        '#corePriceDisplay_desktop_feature_div .a-price-whole',
-        '#corePrice_desktop .a-price-whole',
-        # General Amazon selectors
-        '.a-price .a-offscreen',
-        '#priceblock_ourprice',
-        '#priceblock_dealprice',
-        '#corePriceDisplay_desktop_feature_div .a-offscreen',
-        '#apex_desktop .a-offscreen',
-        '.a-price span[aria-hidden="true"]',
-        '#tp_price_block_total_price_ww .a-offscreen',
-        '.reinventPricePriceToPayMargin .a-offscreen',
-    ]
-
-    for selector in selectors:
-        element = soup.select_one(selector)
-        if not element:
-            continue
-        price = parse_price_text(element.get_text())
-        if price:
-            return price
-    return None
-
-
-def get_headers():
-    """Generate random headers for requests."""
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Connection": "keep-alive",
-        "Cache-Control": "no-cache",
-        "Upgrade-Insecure-Requests": "1",
-    }
-
-
-def fetch_myntra_price(url, max_retries=5):
-    """Fetch price from Myntra."""
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, headers=get_headers(), timeout=30)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, "lxml")
-                scripts = soup.find_all('script')
-                for script in scripts:
-                    if script.string and 'window.__myx =' in script.string:
-                        content = script.string
-                        start_marker = "window.__myx ="
-                        start_index = content.find(start_marker) + len(start_marker)
-                        json_str = content[start_index:].strip()
-                        if json_str.endswith(";"):
-                            json_str = json_str[:-1]
-                        
-                        try:
-                            data = json.loads(json_str)
-                            pdp_data = data.get('pdpData', {})
-                            price = pdp_data.get('price', {}).get('discounted', 0) or pdp_data.get('price', {}).get('mrp', 0)
-                            if price:
-                                return float(price)
-                        except (json.JSONDecodeError, ValueError):
-                            continue
-                
-                # Fallback to selector if JSON fails (though JSON is more reliable)
-                price_element = soup.select_one('.pdp-price')
-                if price_element:
-                    price = parse_price_text(price_element.get_text())
-                    if price:
-                        return price
-                        
-                logger.warning("  Price not found in Myntra page.")
-            else:
-                logger.warning(f"  HTTP {response.status_code}")
-        except requests.RequestException as e:
-            logger.warning(f"  Request error: {e}")
-
-        if attempt < max_retries - 1:
-            time.sleep(2)
-            
-    return None
-
-
-def fetch_flipkart_price(url, max_retries=5):
-    """Fetch price from Flipkart."""
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, headers=get_headers(), timeout=30)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, "lxml")
-                
-                # Try JSON-LD structured data first (most reliable)
-                scripts = soup.find_all('script', type='application/ld+json')
-                for script in scripts:
-                    if script.string:
-                        try:
-                            data = json.loads(script.string)
-                            # Handle both single object and array of objects
-                            if isinstance(data, list):
-                                for item in data:
-                                    if item.get('@type') == 'Product' and 'offers' in item:
-                                        price = item['offers'].get('price')
-                                        if price:
-                                            return float(price)
-                            elif isinstance(data, dict):
-                                if data.get('@type') == 'Product' and 'offers' in data:
-                                    price = data['offers'].get('price')
-                                    if price:
-                                        return float(price)
-                                # Direct Offer type
-                                if data.get('@type') == 'Offer' and 'price' in data:
-                                    return float(data['price'])
-                        except (json.JSONDecodeError, ValueError, KeyError):
-                            continue
-                
-                # Fallback to CSS selectors
-                price_selectors = [
-                    'div.Nx9bqj.CxhGGd',  # Current common selector
-                    'div.hZ3P6w.bnqy13',  # Alternative
-                    'div._30jeq3._16Jk6d',
-                    'div.hl05eU',
-                ]
-                
-                for selector in price_selectors:
-                    element = soup.select_one(selector)
-                    if element:
-                        price = parse_price_text(element.get_text())
-                        if price:
-                            return price
-                
-                logger.warning("  Price not found in Flipkart page.")
-            else:
-                logger.warning(f"  HTTP {response.status_code}")
-        except requests.RequestException as e:
-            logger.warning(f"  Request error: {e}")
-
-        if attempt < max_retries - 1:
-            time.sleep(2)
-            
-    return None
-
-
-def fetch_amazon_price(url, max_retries=5):
-    """Fetch page content and extract price with exponential backoff."""
-    for attempt in range(max_retries):
-        error_reason = None
-        try:
-            response = requests.get(url, headers=get_headers(), timeout=30)
-
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, "lxml")
-                price = get_price(soup)
-                if price:
-                    return price
-                error_reason = "Price element not found in HTML (selectors didn't match)"
-            elif response.status_code == 503:
-                error_reason = "503 Service Unavailable (Amazon blocking)"
-            elif response.status_code == 429:
-                error_reason = "429 Too Many Requests (rate limited)"
-            elif response.status_code == 403:
-                error_reason = "403 Forbidden (blocked/bot detected)"
-            elif response.status_code == 404:
-                error_reason = "404 Not Found (invalid URL or product removed)"
-            else:
-                error_reason = f"HTTP {response.status_code}"
-
-        except requests.Timeout:
-            error_reason = "Request timed out"
-        except requests.ConnectionError:
-            error_reason = "Connection failed"
-        except requests.RequestException as e:
-            error_reason = f"Request error: {e}"
-
-        if attempt < max_retries - 1:
-            wait_time = (2**attempt) + random.random()
-            logger.warning(f"  {error_reason}. Retry {attempt + 1}/{max_retries} in {wait_time:.1f}s...")
-            time.sleep(wait_time)
-        else:
-            logger.error(f"  Failed after {max_retries} attempts: {error_reason}")
-
-    return None
 
 
 def check_price_drop(item_name, current_price, history, threshold):
@@ -374,6 +168,7 @@ def process_item(item, history):
 
 def run_tracker():
     """Main loop to track prices."""
+    setup_logging()
     logger.info("Starting Amazon Price Tracker (Ctrl+C to stop)...")
 
     try:

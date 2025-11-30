@@ -4,7 +4,7 @@ Track Amazon product prices and get notified when they drop below your target.
 
 ## Features
 
-- 📊 Track multiple products from Amazon India
+- 📊 Track multiple products from Amazon, Flipkart, and Myntra
 - 🔔 Desktop notifications when price hits target (Linux/macOS/Windows)
 - 📉 Price drop alerts
 - 📜 Price history saved to JSON
@@ -28,9 +28,21 @@ Add products to `items.json`:
 ```json
 [
   {
-    "name": "Product Name",
+    "name": "Amazon Product",
     "url": "https://www.amazon.in/dp/PRODUCT_ID",
     "threshold": 5000
+  },
+  {
+    "name": "Flipkart Product",
+    "url": "https://www.flipkart.com/product/p/id",
+    "threshold": 2000,
+    "Source": "flipkart"
+  },
+  {
+    "name": "Myntra Product",
+    "url": "https://www.myntra.com/product/id",
+    "threshold": 1500,
+    "Source": "myntra"
   }
 ]
 ```
@@ -38,8 +50,9 @@ Add products to `items.json`:
 | Field | Description |
 |-------|-------------|
 | `name` | Display name for the product |
-| `url` | Amazon product URL |
+| `url` | Product URL |
 | `threshold` | Target price for notification |
+| `Source` | (Optional) "amazon", "flipkart", or "myntra". Defaults to "amazon". |
 
 ## Files
 
