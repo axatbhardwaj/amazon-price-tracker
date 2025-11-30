@@ -1,6 +1,6 @@
-# Amazon Price Tracker
+# Multi-Site Price Tracker
 
-Track Amazon product prices and get notified when they drop below your target.
+Track product prices from Amazon, Flipkart, and Myntra and get notified when they drop below your target.
 
 ## Features
 
@@ -58,7 +58,24 @@ Add products to `items.json`:
 
 - `items.json` - Products to track
 - `price_history.json` - Historical price data
-- `tracker.log` - Log file
+- `tracker.log` - Log file (created on runtime)
+
+## Development
+
+The project is structured as follows:
+
+- `tracker.py`: Main entry point and orchestration logic.
+- `scrapers/`: Package containing site-specific scraping logic.
+  - `amazon.py`: Amazon scraper.
+  - `flipkart.py`: Flipkart scraper.
+  - `myntra.py`: Myntra scraper.
+  - `utils.py`: Shared utilities.
+
+### Running Tests
+
+```bash
+uv run pytest test_tracker.py
+```
 
 ## How It Works
 
