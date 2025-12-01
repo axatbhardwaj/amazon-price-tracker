@@ -20,12 +20,31 @@ LINK, NAME, PLATFORM, THRESHOLD = range(4)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the conversation and asks for the link."""
     await update.message.reply_text(
-        "Hi! I'm your Price Tracker Bot.\n"
+        "Hi! I'm your Amazon Price Tracker Bot.\n"
         "Send /add to start tracking a new item.\n"
         "Send /check to check prices immediately.\n"
+        "Send /help to see how to use me.\n"
         "Send /cancel to stop the current operation."
     )
     return ConversationHandler.END
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Displays info on how to use the bot."""
+    help_text = (
+        "🤖 *Price Tracker Bot Help*\n\n"
+        "Here are the commands you can use:\n\n"
+        "1. */add* - Start tracking a new product.\n"
+        "   - You'll be asked for the product link.\n"
+        "   - Then give it a name.\n"
+        "   - Select the platform (Amazon, Flipkart, Myntra).\n"
+        "   - Set your target price.\n\n"
+        "2. */check* - Check prices for all your items right now.\n\n"
+        "3. */cancel* - Stop whatever you're doing (like adding an item).\n\n"
+        "4. */start* - Show the welcome message.\n\n"
+        "🔔 *Notifications*:\n"
+        "I'll automatically check prices every 30 minutes. If a price drops below your target, I'll send you a message with the link!"
+    )
+    await update.message.reply_text(help_text, parse_mode="Markdown")
 
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the add item conversation."""
@@ -171,6 +190,7 @@ def main() -> None:
     )
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("check", check_now))
     application.add_handler(conv_handler)
 

@@ -41,6 +41,7 @@ make run-bot
 
 **Bot Commands**:
 - `/start`: Welcome message.
+- `/help`: Show usage instructions.
 - `/add`: Add a new item (guided flow: Link -> Name -> Platform -> Price).
 - `/check`: Trigger an immediate price check.
 - `/cancel`: Cancel current operation.
