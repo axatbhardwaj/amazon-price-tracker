@@ -27,6 +27,20 @@ run-cli:
 run-bot:
 	uv run python bot.py
 
+run-detached:
+	@echo "Starting bot in background..."
+	@nohup uv run python bot.py > logs/bot.log 2>&1 & echo $$! > bot.pid
+	@echo "Bot started with PID $$(cat bot.pid). Logs are in logs/bot.log"
+
+stop:
+	@if [ -f bot.pid ]; then \
+		echo "Stopping bot with PID $$(cat bot.pid)..."; \
+		kill $$(cat bot.pid) && rm bot.pid; \
+		echo "Bot stopped."; \
+	else \
+		echo "No bot.pid file found. Is the bot running?"; \
+	fi
+
 test:
 	uv run pytest
 
