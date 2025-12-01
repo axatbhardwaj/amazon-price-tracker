@@ -65,8 +65,9 @@ class TestCheckPriceDrop:
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        item = {"name": "Test Item", "threshold": 500.0, "url": "http://example.com"}
         with caplog.at_level(logging.INFO):
-            check_price_drop("Test Item", 800.0, history, 500.0)
+            check_price_drop(item, 800.0, history)
 
         assert "PRICE DROP" in caplog.text
         assert "1000.0" in caplog.text
@@ -76,8 +77,9 @@ class TestCheckPriceDrop:
         history = {
             "Test Item": [{"price": 800.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        item = {"name": "Test Item", "threshold": 500.0, "url": "http://example.com"}
         caplog.clear()
-        check_price_drop("Test Item", 1000.0, history, 500.0)
+        check_price_drop(item, 1000.0, history)
 
         assert "PRICE DROP" not in caplog.text
 
@@ -85,8 +87,9 @@ class TestCheckPriceDrop:
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        item = {"name": "Test Item", "threshold": 500.0, "url": "http://example.com"}
         caplog.clear()
-        check_price_drop("Test Item", 1000.0, history, 500.0)
+        check_price_drop(item, 1000.0, history)
 
         assert "PRICE DROP" not in caplog.text
 
@@ -94,8 +97,9 @@ class TestCheckPriceDrop:
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        item = {"name": "Test Item", "threshold": 500.0, "url": "http://example.com"}
         with caplog.at_level(logging.INFO):
-            check_price_drop("Test Item", 450.0, history, 500.0)
+            check_price_drop(item, 450.0, history)
 
         assert "TARGET REACHED" in caplog.text
 
@@ -103,22 +107,25 @@ class TestCheckPriceDrop:
         history = {
             "Test Item": [{"price": 1000.0, "timestamp": "2024-01-01T10:00:00"}]
         }
+        item = {"name": "Test Item", "threshold": 500.0, "url": "http://example.com"}
         caplog.clear()
-        check_price_drop("Test Item", 600.0, history, 500.0)
+        check_price_drop(item, 600.0, history)
 
         assert "TARGET REACHED" not in caplog.text
 
     def test_no_history(self, caplog):
         history = {}
+        item = {"name": "Test Item", "threshold": 500.0, "url": "http://example.com"}
         caplog.clear()
-        check_price_drop("Test Item", 800.0, history, 500.0)
+        check_price_drop(item, 800.0, history)
 
         assert caplog.text == ""
 
     def test_empty_item_history(self, caplog):
         history = {"Test Item": []}
+        item = {"name": "Test Item", "threshold": 500.0, "url": "http://example.com"}
         caplog.clear()
-        check_price_drop("Test Item", 800.0, history, 500.0)
+        check_price_drop(item, 800.0, history)
 
         assert caplog.text == ""
 
@@ -449,7 +456,7 @@ class TestSendNotification:
         # Check command structure
         cmd = args[0]
         assert cmd[0] == "powershell"
-        assert 'MessageBox' in cmd[2]
+        assert 'ToastNotificationManager' in cmd[2]
         assert "Title" in cmd[2]
         assert "Message" in cmd[2]
         
