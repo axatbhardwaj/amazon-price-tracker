@@ -48,26 +48,29 @@ def setup_logging():
 logger = logging.getLogger(__name__)
 
 
-def send_notification(title, message):
-    """Send desktop notification (cross-platform)."""
+def send_notification(title, message, item=None):
+    """Sends a system notification."""
+    logger.info(f"Sending notification: {title} - {message}")
+    
     system = platform.system()
+    
     try:
-        if system == "Linux":
+        if system == "Darwin":  # macOS
+            subprocess.run(["osascript", "-e", f'display notification "{message}" with title "{title}"'], check=False)
+        elif system == "Linux":
             subprocess.run(["notify-send", title, message], check=False)
-        elif system == "Darwin":
-            script = f'display notification "{message}" with title "{title}"'
-            subprocess.run(["osascript", "-e", script], check=False)
         elif system == "Windows":
-            # Use Popen for non-blocking execution and suppress output
-            subprocess.Popen(
-                [
-                    "powershell",
-                    "-Command",
-                    f'[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms"); [System.Windows.Forms.MessageBox]::Show("{message}", "{title}")',
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            # Powershell command for toast notification
+            cmd = f"""
+            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;
+            $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);
+            $xml = $template.GetXml();
+            $template.GetElementsByTagName("text")[0].AppendChild($template.CreateTextNode("{title}")) > $null;
+            $template.GetElementsByTagName("text")[1].AppendChild($template.CreateTextNode("{message}")) > $null;
+            $toast = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotification($template);
+            [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Python Script").Show($toast);
+            """
+            subprocess.Popen(["powershell", "-Command", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
         logger.warning(f"Notification command not found for {system}.")
 
@@ -122,8 +125,12 @@ def save_history(history):
             os.remove(temp_name)
 
 
-def check_price_drop(item_name, current_price, history, threshold, notification_callback=None, item_url=None):
+def check_price_drop(item, current_price, history, notification_callback=None):
     """Check if price dropped and notify if target reached."""
+    item_name = item.get("name", "Unknown Item")
+    threshold = item.get("threshold", 0.0)
+    item_url = item.get("url")
+    
     last_price = None
     if item_name in history and history[item_name]:
         last_entry = history[item_name][-1]
@@ -140,7 +147,7 @@ def check_price_drop(item_name, current_price, history, threshold, notification_
             notification_callback(
                 "🔔 Price Target Reached!",
                 f"{item_name}\n₹{current_price} (Target: ₹{threshold})",
-                item_url
+                item
             )
         else:
             send_notification(
@@ -188,7 +195,7 @@ def process_item(item, history, notification_callback=None):
         # title = result.get('title')
         
         logger.info(f"  Price: {price}")
-        check_price_drop(name, price, history, threshold, notification_callback, url)
+        check_price_drop(item, price, history, notification_callback)
         update_price_history(name, price, history)
     else:
         logger.warning(f"  Could not find price for {name}")

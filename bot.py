@@ -1,8 +1,8 @@
 import logging
 import os
 import asyncio
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, CallbackQueryHandler, filters
 from tracker import load_items, save_history, load_history, process_item, ITEMS_FILE, setup_logging
 from scrapers import fetch_amazon_price, fetch_flipkart_price, fetch_myntra_price
 import json
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # States for ConversationHandler
 LINK, NAME, PLATFORM, THRESHOLD = range(4)
 DELETE_SELECT = 0
+NEW_THRESHOLD = 0
 
 async def delete_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the delete item conversation."""
@@ -264,19 +265,48 @@ async def run_tracking_cycle(app):
             logger.warning(f"Item {item.get('name', 'Unknown')} has no user_id. Skipping notification.")
             continue
             
-        async def item_notification_callback(title, message, item_url=None):
+        async def item_notification_callback(title, message, item=None):
             text = f"{title}\n{message}"
-            if item_url:
-                text += f"\n\nLink: {item_url}"
+            reply_markup = None
+            
+            if item:
+                item_url = item.get("url")
+                if item_url:
+                    text += f"\n\nLink: {item_url}"
+                
+                # Add inline buttons
+                # We need a way to identify the item. Using URL hash or just index if we reload.
+                # Let's find the index of this item in the current list
+                try:
+                    # Reload items to get fresh index
+                    current_items = load_items()
+                    # Find index by matching URL and Name
+                    item_index = -1
+                    for idx, curr_item in enumerate(current_items):
+                        if curr_item.get("url") == item.get("url") and curr_item.get("name") == item.get("name"):
+                            item_index = idx
+                            break
+                    
+                    if item_index != -1:
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("Update Threshold", callback_data=f"update_{item_index}"),
+                                InlineKeyboardButton("Stop Tracking", callback_data=f"delete_{item_index}"),
+                            ]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                except Exception as e:
+                    logger.error(f"Error creating inline buttons: {e}")
+
             try:
-                await app.bot.send_message(chat_id=user_id, text=text)
+                await app.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup)
             except Exception as e:
                 logger.error(f"Failed to send message to {user_id}: {e}")
 
         # Using run_in_executor to avoid blocking the bot
         await loop.run_in_executor(
             None, 
-            lambda i=item: process_item(i, history, lambda t, m, u: asyncio.run_coroutine_threadsafe(item_notification_callback(t, m, u), loop))
+            lambda i=item: process_item(i, history, lambda t, m, it: asyncio.run_coroutine_threadsafe(item_notification_callback(t, m, it), loop))
         )
         
     save_history(history)
@@ -311,6 +341,66 @@ async def send_heartbeat(context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Failed to send heartbeat: {response.status_code}")
     except Exception as e:
         logger.error(f"Error sending heartbeat: {e}")
+
+async def handle_notification_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Parses the CallbackQuery and updates the message text."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    action, index_str = data.split("_")
+    index = int(index_str)
+    
+    items = load_items()
+    
+    if index < 0 or index >= len(items):
+        await query.edit_message_text(text=f"Item not found or already deleted.")
+        return
+
+    item = items[index]
+
+    if action == "delete":
+        # Remove item
+        items.pop(index)
+        with open(ITEMS_FILE, 'w') as f:
+            json.dump(items, f, indent=2)
+        await query.edit_message_text(text=f"Stopped tracking '{item['name']}'.")
+        
+    elif action == "update":
+        context.user_data["update_item_index"] = index
+        context.user_data["update_item_name"] = item["name"]
+        
+        await query.edit_message_text(text=f"Please enter the new target price for '{item['name']}':")
+        return NEW_THRESHOLD
+
+async def update_threshold_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Updates the threshold for the selected item."""
+    index = context.user_data.get("update_item_index")
+    if index is None:
+        await update.message.reply_text("Something went wrong. Please try again.")
+        return ConversationHandler.END
+        
+    try:
+        new_threshold = float(update.message.text)
+        
+        items = load_items()
+        # Verify index is still valid and item matches (basic check)
+        if index < len(items) and items[index]["name"] == context.user_data.get("update_item_name"):
+            items[index]["threshold"] = new_threshold
+            with open(ITEMS_FILE, 'w') as f:
+                json.dump(items, f, indent=2)
+            await update.message.reply_text(f"Threshold for '{items[index]['name']}' updated to ₹{new_threshold}.")
+        else:
+            await update.message.reply_text("Item not found or list changed. Please try again.")
+            
+    except ValueError:
+        await update.message.reply_text("Invalid price format.")
+        
+    # Clear state
+    context.user_data.pop("update_item_index", None)
+    context.user_data.pop("update_item_name", None)
+    
+    return ConversationHandler.END
 
 def main() -> None:
     """Run the bot."""
@@ -348,11 +438,23 @@ def main() -> None:
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    # Update threshold conversation
+    update_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_notification_action, pattern="^update_")],
+        states={
+            NEW_THRESHOLD: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_threshold_handler)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        per_message=False # Important for callback query to switch to message handler
+    )
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("check", check_now))
     application.add_handler(conv_handler)
     application.add_handler(delete_conv_handler)
+    application.add_handler(update_conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_notification_action, pattern="^delete_"))
 
     # Auto-start tracking job
     if application.job_queue:
