@@ -45,19 +45,6 @@ make run-bot
 - `/check`: Trigger an immediate price check.
 - `/cancel`: Cancel current operation.
 
-### 🚀 Run in Background (Detached)
-
-To keep the bot running even after you close the terminal:
-
-```bash
-make run-detached
-```
-
-To stop the background bot:
-```bash
-make stop
-```
-
 ### 🖥️ Run CLI Tracker
 
 ```bash
@@ -102,8 +89,6 @@ Stores the list of tracked items. The bot manages this automatically, but you ca
 - `make setup`: Install dependencies and create .env file.
 - `make install`: Install dependencies only.
 - `make run-bot`: Run the Telegram bot.
-- `make run-detached`: Run bot in background.
-- `make stop`: Stop the background bot.
 - `make run-cli`: Run the CLI tracker.
 - `make test`: Run tests.
 - `make clean`: Clean up cache files.
