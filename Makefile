@@ -12,6 +12,15 @@ help:
 install:
 	uv sync
 
+setup: install
+	@if [ ! -f .env ]; then \
+		echo "Creating .env file..."; \
+		echo "TELEGRAM_TOKEN=your_telegram_bot_token_here" > .env; \
+		echo ".env file created. Please update it with your actual token."; \
+	else \
+		echo ".env file already exists. Skipping creation."; \
+	fi
+
 run-cli:
 	uv run python tracker.py
 
