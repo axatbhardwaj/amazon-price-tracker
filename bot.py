@@ -5,6 +5,7 @@ from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 from tracker import load_items, save_history, load_history, process_item, ITEMS_FILE, setup_logging
 import json
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -237,6 +238,23 @@ async def check_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error during manual check: {e}")
         await update.message.reply_text("An error occurred during the price check.")
 
+
+async def send_heartbeat(context: ContextTypes.DEFAULT_TYPE):
+    """Sends a heartbeat to Uptime Kuma."""
+    push_url = os.getenv("UPTIME_KUMA_PUSH_URL")
+    if not push_url:
+        logger.warning("UPTIME_KUMA_PUSH_URL not set. Skipping heartbeat.")
+        return
+
+    try:
+        response = requests.get(push_url)
+        if response.status_code == 200:
+            logger.info("Heartbeat sent successfully.")
+        else:
+            logger.error(f"Failed to send heartbeat: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error sending heartbeat: {e}")
+
 def main() -> None:
     """Run the bot."""
     # Ensure items.json exists
@@ -282,6 +300,7 @@ def main() -> None:
     # Auto-start tracking job
     if application.job_queue:
         application.job_queue.run_repeating(check_prices, interval=1800, first=10)
+        application.job_queue.run_repeating(send_heartbeat, interval=60, first=5)
         logger.info("Tracking job scheduled.")
 
     logger.info("Bot started. Waiting for commands...")
