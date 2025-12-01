@@ -145,6 +145,12 @@ async def check_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main() -> None:
     """Run the bot."""
+    # Ensure items.json exists
+    if not os.path.exists(ITEMS_FILE):
+        with open(ITEMS_FILE, 'w') as f:
+            json.dump([], f)
+        logger.info(f"Created empty {ITEMS_FILE}")
+
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
         logger.error("TELEGRAM_TOKEN environment variable not set.")
