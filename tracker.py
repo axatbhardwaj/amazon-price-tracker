@@ -175,14 +175,18 @@ def process_item(item, history, notification_callback=None):
     price = None
     
     if source == "myntra":
-        price = fetch_myntra_price(url)
+        result = fetch_myntra_price(url)
     elif source == "flipkart":
-        price = fetch_flipkart_price(url)
+        result = fetch_flipkart_price(url)
     else:
         # Default to Amazon
-        price = fetch_amazon_price(url)
+        result = fetch_amazon_price(url)
 
-    if price:
+    if result:
+        price = result['price']
+        # We could update the name here if we wanted, but for now just logging
+        # title = result.get('title')
+        
         logger.info(f"  Price: {price}")
         check_price_drop(name, price, history, threshold, notification_callback, url)
         update_price_history(name, price, history)

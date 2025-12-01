@@ -226,15 +226,16 @@ class TestSaveHistory:
 
 class TestFetchAmazonPrice:
     def test_successful_fetch(self):
-        mock_html = '<div class="a-price-whole">1,299</div>'
+        mock_html = '<div class="a-price-whole">1,299</div><span id="productTitle">Test Product</span>'
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = mock_html.encode()
 
         with patch('tracker.requests.get', return_value=mock_response):
-            price = fetch_amazon_price("http://example.com")
+            result = fetch_amazon_price("http://example.com")
 
-        assert price == 1299.0
+        assert result['price'] == 1299.0
+        assert result['title'] == "Test Product"
 
     def test_failed_fetch_status(self, caplog):
         mock_response = MagicMock()
@@ -243,9 +244,9 @@ class TestFetchAmazonPrice:
         with patch('tracker.requests.get', return_value=mock_response):
             # Patch sleep to avoid waiting
             with patch("time.sleep"):
-                price = fetch_amazon_price("http://example.com", max_retries=1)
+                result = fetch_amazon_price("http://example.com", max_retries=1)
 
-        assert price is None
+        assert result is None
         assert "503" in caplog.text
 
     def test_network_error(self, caplog):
@@ -254,9 +255,9 @@ class TestFetchAmazonPrice:
             side_effect=requests.RequestException("Network error"),
         ):
             with patch("time.sleep"):
-                price = fetch_amazon_price("http://example.com", max_retries=1)
+                result = fetch_amazon_price("http://example.com", max_retries=1)
 
-        assert price is None
+        assert result is None
         assert "Network error" in caplog.text
 
 
@@ -274,15 +275,16 @@ class TestFetchMyntraPrice:
         mock_response.content = mock_html.encode()
 
         with patch('tracker.requests.get', return_value=mock_response):
-            price = fetch_myntra_price("http://myntra.com/test")
+            result = fetch_myntra_price("http://myntra.com/test")
 
-        assert price == 1895.0
+        assert result['price'] == 1895.0
+        assert result['title'] == "Test Product"
 
     def test_myntra_mrp_fallback(self):
         """Test that MRP is used when discounted price is 0."""
         mock_html = '''
         <script>
-        window.__myx = {"pdpData": {"price": {"discounted": 0, "mrp": 2495}}};
+        window.__myx = {"pdpData": {"price": {"discounted": 0, "mrp": 2495}, "name": "Test Product"}};
         </script>
         '''
         mock_response = MagicMock()
@@ -290,9 +292,9 @@ class TestFetchMyntraPrice:
         mock_response.content = mock_html.encode()
 
         with patch('tracker.requests.get', return_value=mock_response):
-            price = fetch_myntra_price("http://myntra.com/test")
+            result = fetch_myntra_price("http://myntra.com/test")
 
-        assert price == 2495.0
+        assert result['price'] == 2495.0
 
     def test_myntra_no_price_found(self, caplog):
         mock_html = '<html><body>No price data</body></html>'
@@ -302,9 +304,9 @@ class TestFetchMyntraPrice:
 
         with patch('tracker.requests.get', return_value=mock_response):
             with patch("time.sleep"):
-                price = fetch_myntra_price("http://myntra.com/test", max_retries=1)
+                result = fetch_myntra_price("http://myntra.com/test", max_retries=1)
 
-        assert price is None
+        assert result is None
         assert "Price not found in Myntra page" in caplog.text
         
         
@@ -312,6 +314,7 @@ class TestFetchFlipkartPrice:
     def test_successful_flipkart_json_ld(self):
         mock_html = '''
         <html>
+        <h1 class="_6EBuvT">Test Product</h1>
         <script type="application/ld+json">
         [
             {
@@ -329,20 +332,22 @@ class TestFetchFlipkartPrice:
         mock_response.content = mock_html.encode()
 
         with patch('tracker.requests.get', return_value=mock_response):
-            price = fetch_flipkart_price("http://flipkart.com/test")
+            result = fetch_flipkart_price("http://flipkart.com/test")
 
-        assert price == 12999.0
+        assert result['price'] == 12999.0
+        assert result['title'] == "Test Product"
 
     def test_successful_flipkart_selector(self):
-        mock_html = '<div class="Nx9bqj CxhGGd">₹12,999</div>'
+        mock_html = '<div class="Nx9bqj CxhGGd">₹12,999</div><span class="VU-ZEz">Test Product</span>'
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = mock_html.encode()
 
         with patch('tracker.requests.get', return_value=mock_response):
-            price = fetch_flipkart_price("http://flipkart.com/test")
+            result = fetch_flipkart_price("http://flipkart.com/test")
 
-        assert price == 12999.0
+        assert result['price'] == 12999.0
+        assert result['title'] == "Test Product"
 
     def test_flipkart_no_price_found(self, caplog):
         mock_html = '<html><body>No price data</body></html>'
@@ -352,14 +357,14 @@ class TestFetchFlipkartPrice:
 
         with patch('tracker.requests.get', return_value=mock_response):
             with patch("time.sleep"):
-                price = fetch_flipkart_price("http://flipkart.com/test", max_retries=1)
+                result = fetch_flipkart_price("http://flipkart.com/test", max_retries=1)
 
-        assert price is None
+        assert result is None
         assert "Price not found in Flipkart page" in caplog.text
 
 
 class TestProcessItem:
-    @patch('tracker.fetch_amazon_price', return_value=1000.0)
+    @patch('tracker.fetch_amazon_price', return_value={"price": 1000.0, "title": "Test Amazon Item"})
     @patch('tracker.fetch_myntra_price')
     @patch('tracker.fetch_flipkart_price')
     def test_process_amazon_item(self, mock_flipkart, mock_myntra, mock_amazon):
@@ -378,7 +383,7 @@ class TestProcessItem:
         mock_flipkart.assert_not_called()
 
     @patch('tracker.fetch_amazon_price')
-    @patch('tracker.fetch_myntra_price', return_value=1895.0)
+    @patch('tracker.fetch_myntra_price', return_value={"price": 1895.0, "title": "Test Myntra Item"})
     @patch('tracker.fetch_flipkart_price')
     def test_process_myntra_item(self, mock_flipkart, mock_myntra, mock_amazon):
         item = {
@@ -397,7 +402,7 @@ class TestProcessItem:
 
     @patch('tracker.fetch_amazon_price')
     @patch('tracker.fetch_myntra_price')
-    @patch('tracker.fetch_flipkart_price', return_value=12999.0)
+    @patch('tracker.fetch_flipkart_price', return_value={"price": 12999.0, "title": "Test Flipkart Item"})
     def test_process_flipkart_item(self, mock_flipkart, mock_myntra, mock_amazon):
         item = {
             "name": "Test Flipkart Item",
@@ -413,7 +418,7 @@ class TestProcessItem:
         mock_amazon.assert_not_called()
         mock_myntra.assert_not_called()
 
-    @patch('tracker.fetch_amazon_price', return_value=1000.0)
+    @patch('tracker.fetch_amazon_price', return_value={"price": 1000.0, "title": "Test Item"})
     @patch('tracker.fetch_myntra_price')
     @patch('tracker.fetch_flipkart_price')
     def test_process_default_source(self, mock_flipkart, mock_myntra, mock_amazon):

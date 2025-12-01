@@ -4,6 +4,7 @@ import asyncio
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 from tracker import load_items, save_history, load_history, process_item, ITEMS_FILE, setup_logging
+from scrapers import fetch_amazon_price, fetch_flipkart_price, fetch_myntra_price
 import json
 import requests
 from dotenv import load_dotenv
@@ -130,17 +131,73 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return LINK
 
 async def link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the link and asks for the name."""
-    context.user_data["url"] = update.message.text
-    await update.message.reply_text(
-        "Got it! Now, what should I call this item?"
-    )
-    return NAME
+    """Stores the link, validates it, and tries to fetch details."""
+    url = update.message.text
+    context.user_data["url"] = url
+    
+    # Detect platform
+    source = None
+    if "amazon" in url or "amzn" in url:
+        source = "amazon"
+    elif "flipkart" in url:
+        source = "flipkart"
+    elif "myntra" in url:
+        source = "myntra"
+        
+    if not source:
+        await update.message.reply_text(
+            "I couldn't detect the platform from that link. Please make sure it's a valid Amazon, Flipkart, or Myntra URL.\n"
+            "Please send the link again."
+        )
+        return LINK
+        
+    context.user_data["source"] = source
+    await update.message.reply_text(f"Detected platform: {source.capitalize()}. Fetching details...")
+    
+    # Fetch details
+    result = None
+    try:
+        if source == "amazon":
+            result = fetch_amazon_price(url)
+        elif source == "flipkart":
+            result = fetch_flipkart_price(url)
+        elif source == "myntra":
+            result = fetch_myntra_price(url)
+    except Exception as e:
+        logger.error(f"Error fetching details: {e}")
+        
+    if result:
+        title = result.get('title', 'Unknown Item')
+        price = result.get('price', 0.0)
+        
+        context.user_data["name"] = title
+        
+        await update.message.reply_text(
+            f"Found: *{title}*\n"
+            f"Current Price: ₹{price}\n\n"
+            "What is your target price threshold? (e.g., 1000)",
+            parse_mode="Markdown"
+        )
+        return THRESHOLD
+    else:
+        await update.message.reply_text(
+            "Could not automatically fetch details. Let's do it manually.\n"
+            "What should I call this item?"
+        )
+        return NAME
 
 async def name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the name and asks for the platform."""
     context.user_data["name"] = update.message.text
     
+    # If we already detected the source in the link step (but failed to fetch), we can skip asking
+    if context.user_data.get("source"):
+         await update.message.reply_text(
+            "What is your target price threshold? (e.g., 1000)",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+         return THRESHOLD
+
     reply_keyboard = [["Amazon", "Flipkart", "Myntra"]]
     await update.message.reply_text(
         "Nice name! Now, select the platform:",

@@ -7,10 +7,12 @@ Track product prices from Amazon, Flipkart, and Myntra and get notified via **Te
 - 📊 **Multi-Platform**: Track products from Amazon, Flipkart, and Myntra.
 - 🤖 **Telegram Bot**: 
     - Add items via chat with a guided conversation.
+    - **Auto-Fetch**: Automatically detects platform and fetches product name from the link.
     - **Auto-start**: Tracking starts automatically on bot startup.
     - **Smart Notifications**: Alerts include product links and are sent to the specific user.
     - **Platform UI**: Easy-to-use buttons for selecting platforms.
     - **Immediate Check**: Use `/check` to verify prices instantly.
+    - **Heartbeat Monitoring**: Sends periodic heartbeats to Uptime Kuma to ensure the bot is running.
 - 🖥️ **CLI Mode**: Run as a background script with system notifications (Linux/macOS/Windows).
 - 📉 **Price Drop Alerts**: Get notified when price hits your target or drops.
 - 📜 **History**: Price history saved to JSON.
@@ -26,9 +28,10 @@ Track product prices from Amazon, Flipkart, and Myntra and get notified via **Te
     ```
 
 2.  **Configure Token**:
-    Open the newly created `.env` file and paste your Telegram Bot Token:
+    Open the newly created `.env` file and paste your Telegram Bot Token and Uptime Kuma URL:
     ```env
     TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+    UPTIME_KUMA_PUSH_URL=https://uptime-kuma.../api/push/XXXX?status=up&msg=OK
     ```
 
 ## Usage

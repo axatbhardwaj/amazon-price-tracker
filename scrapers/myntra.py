@@ -7,8 +7,21 @@ from .utils import get_headers, parse_price_text
 
 logger = logging.getLogger(__name__)
 
+def get_title(soup):
+    """Extract product title from Myntra."""
+    selectors = [
+        'h1.pdp-title',
+        'h1.pdp-name',
+        'h1',
+    ]
+    for selector in selectors:
+        element = soup.select_one(selector)
+        if element:
+            return element.get_text().strip()
+    return "Unknown Product"
+
 def fetch_myntra_price(url, max_retries=5):
-    """Fetch price from Myntra."""
+    """Fetch price and title from Myntra."""
     logger.info(f"Fetching Myntra URL: {url}")
     for attempt in range(max_retries):
         try:
@@ -17,6 +30,9 @@ def fetch_myntra_price(url, max_retries=5):
             if response.status_code == 200:
                 logger.debug("Parsing HTML with BeautifulSoup...")
                 soup = BeautifulSoup(response.content, "lxml")
+                
+                title = get_title(soup)
+
                 scripts = soup.find_all('script')
                 logger.debug(f"Found {len(scripts)} scripts.")
                 for script in scripts:
@@ -33,9 +49,15 @@ def fetch_myntra_price(url, max_retries=5):
                             data = json.loads(json_str)
                             pdp_data = data.get('pdpData', {})
                             price = pdp_data.get('price', {}).get('discounted', 0) or pdp_data.get('price', {}).get('mrp', 0)
+                            
+                            # Try to get title from JSON if available
+                            json_title = pdp_data.get('name')
+                            if json_title:
+                                title = json_title
+
                             if price:
                                 logger.info(f"Found price in JSON: {price}")
-                                return float(price)
+                                return {"price": float(price), "title": title}
                         except (json.JSONDecodeError, ValueError):
                             logger.warning("Failed to parse Myntra JSON.")
                             continue
@@ -48,7 +70,7 @@ def fetch_myntra_price(url, max_retries=5):
                     price = parse_price_text(price_text)
                     if price:
                         logger.info(f"Successfully extracted price: {price}")
-                        return price
+                        return {"price": price, "title": title}
                         
                 logger.warning("  Price not found in Myntra page.")
                 error_reason = "Price not found" # Set error reason

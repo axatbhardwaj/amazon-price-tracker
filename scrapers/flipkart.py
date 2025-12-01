@@ -7,8 +7,21 @@ from .utils import get_headers, parse_price_text
 
 logger = logging.getLogger(__name__)
 
+def get_title(soup):
+    """Extract product title from Flipkart."""
+    selectors = [
+        'span.VU-ZEz',
+        'h1._6EBuvT',
+        'h1',
+    ]
+    for selector in selectors:
+        element = soup.select_one(selector)
+        if element:
+            return element.get_text().strip()
+    return "Unknown Product"
+
 def fetch_flipkart_price(url, max_retries=5):
-    """Fetch price from Flipkart."""
+    """Fetch price and title from Flipkart."""
     logger.info(f"Fetching Flipkart URL: {url}")
     for attempt in range(max_retries):
         try:
@@ -18,6 +31,8 @@ def fetch_flipkart_price(url, max_retries=5):
                 logger.debug("Parsing HTML with BeautifulSoup...")
                 soup = BeautifulSoup(response.content, "lxml")
                 
+                title = get_title(soup)
+
                 # Try JSON-LD structured data first (most reliable)
                 scripts = soup.find_all('script', type='application/ld+json')
                 logger.debug(f"Found {len(scripts)} JSON-LD scripts.")
@@ -32,17 +47,17 @@ def fetch_flipkart_price(url, max_retries=5):
                                         price = item['offers'].get('price')
                                         if price:
                                             logger.info(f"Found price in JSON-LD (list): {price}")
-                                            return float(price)
+                                            return {"price": float(price), "title": title}
                             elif isinstance(data, dict):
                                 if data.get('@type') == 'Product' and 'offers' in data:
                                     price = data['offers'].get('price')
                                     if price:
                                         logger.info(f"Found price in JSON-LD (dict): {price}")
-                                        return float(price)
+                                        return {"price": float(price), "title": title}
                                 # Direct Offer type
                                 if data.get('@type') == 'Offer' and 'price' in data:
                                     logger.info(f"Found price in JSON-LD (Offer): {data['price']}")
-                                    return float(data['price'])
+                                    return {"price": float(data['price']), "title": title}
                         except (json.JSONDecodeError, ValueError, KeyError):
                             continue
                 
@@ -62,7 +77,7 @@ def fetch_flipkart_price(url, max_retries=5):
                         price = parse_price_text(price_text)
                         if price:
                             logger.info(f"Successfully extracted price: {price}")
-                            return price
+                            return {"price": price, "title": title}
                 
                 logger.warning("  Price not found in Flipkart page.")
                 error_reason = "Price not found"

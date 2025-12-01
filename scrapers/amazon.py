@@ -38,8 +38,21 @@ def get_price(soup):
     logger.warning("No price selectors matched.")
     return None
 
+def get_title(soup):
+    """Extract product title."""
+    selectors = [
+        '#productTitle',
+        '#title',
+        'h1',
+    ]
+    for selector in selectors:
+        element = soup.select_one(selector)
+        if element:
+            return element.get_text().strip()
+    return "Unknown Product"
+
 def fetch_amazon_price(url, max_retries=5):
-    """Fetch page content and extract price with exponential backoff."""
+    """Fetch page content and extract price and title with exponential backoff."""
     logger.info(f"Fetching Amazon URL: {url}")
     for attempt in range(max_retries):
         error_reason = None
@@ -51,8 +64,10 @@ def fetch_amazon_price(url, max_retries=5):
                 logger.debug("Parsing HTML with BeautifulSoup...")
                 soup = BeautifulSoup(response.content, "lxml")
                 price = get_price(soup)
+                title = get_title(soup)
+                
                 if price:
-                    return price
+                    return {"price": price, "title": title}
                 
                 # Debug: Save HTML to file if price not found
                 with open("debug_amazon.html", "w", encoding="utf-8") as f:
