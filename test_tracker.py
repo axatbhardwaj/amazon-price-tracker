@@ -161,7 +161,39 @@ class TestLoadItems:
         assert result == []
         assert "not found" in caplog.text
 
+        assert result == []
+        assert "not found" in caplog.text
 
+
+class TestDeleteItem:
+    def test_delete_valid_item(self, tmp_path):
+        items_file = tmp_path / "items.json"
+        items_data = [{"name": "Item 1"}, {"name": "Item 2"}]
+        items_file.write_text(json.dumps(items_data))
+
+        with patch('tracker.ITEMS_FILE', str(items_file)):
+            from tracker import delete_item
+            removed = delete_item(0)
+            
+        assert removed == {"name": "Item 1"}
+        
+        saved_items = json.loads(items_file.read_text())
+        assert len(saved_items) == 1
+        assert saved_items[0]["name"] == "Item 2"
+
+    def test_delete_invalid_index(self, tmp_path):
+        items_file = tmp_path / "items.json"
+        items_data = [{"name": "Item 1"}]
+        items_file.write_text(json.dumps(items_data))
+
+        with patch('tracker.ITEMS_FILE', str(items_file)):
+            from tracker import delete_item
+            removed = delete_item(5)
+            
+        assert removed is None
+        
+        saved_items = json.loads(items_file.read_text())
+        assert len(saved_items) == 1
 class TestLoadHistory:
     def test_load_existing_history(self, tmp_path):
         history_file = tmp_path / "history.json"

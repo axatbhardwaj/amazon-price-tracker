@@ -84,6 +84,16 @@ def load_items():
         logger.error(f"Failed to decode {ITEMS_FILE}.")
         return []
 
+def delete_item(index):
+    """Delete an item by index."""
+    items = load_items()
+    if 0 <= index < len(items):
+        removed = items.pop(index)
+        with open(ITEMS_FILE, 'w') as f:
+            json.dump(items, f, indent=2)
+        return removed
+    return None
+
 def load_history():
     """Load price history from JSON file."""
     if not os.path.exists(HISTORY_FILE):

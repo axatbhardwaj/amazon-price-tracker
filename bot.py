@@ -16,6 +16,80 @@ logger = logging.getLogger(__name__)
 
 # States for ConversationHandler
 LINK, NAME, PLATFORM, THRESHOLD = range(4)
+DELETE_SELECT = 0
+
+async def delete_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Starts the delete item conversation."""
+    user_id = update.effective_chat.id
+    items = load_items()
+    
+    # Filter items for this user
+    user_items = []
+    for i, item in enumerate(items):
+        if item.get("user_id") == user_id:
+            user_items.append((i, item))
+            
+    if not user_items:
+        await update.message.reply_text("You are not tracking any items.")
+        return ConversationHandler.END
+        
+    context.user_data["user_items"] = user_items
+    
+    # Create buttons for each item
+    keyboard = [[f"{item['name']}"] for _, item in user_items]
+    keyboard.append(["Cancel"])
+    
+    await update.message.reply_text(
+        "Select an item to stop tracking:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    )
+    return DELETE_SELECT
+
+async def delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles the item deletion."""
+    text = update.message.text
+    if text == "Cancel":
+        await update.message.reply_text("Operation cancelled.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+        
+    user_items = context.user_data.get("user_items", [])
+    
+    # Find the selected item
+    selected_index = -1
+    for index, item in user_items:
+        if item["name"] == text:
+            selected_index = index
+            break
+            
+    if selected_index != -1:
+        # We need to be careful about indices shifting if multiple users delete at once, 
+        # but for this simple file-based approach, we'll reload and check.
+        # Actually, let's use the delete_item function we added to tracker.py
+        # But wait, delete_item takes an index. If the file changed, the index might be wrong.
+        # A safer way is to load, find by matching all fields, and delete.
+        
+        # Let's do it safely here
+        items = load_items()
+        # Find the item that matches exactly
+        found = False
+        for i, item in enumerate(items):
+            # Check if it matches the one we selected (using name and user_id should be enough for now)
+            if item.get("name") == text and item.get("user_id") == update.effective_chat.id:
+                items.pop(i)
+                found = True
+                break
+        
+        if found:
+            with open(ITEMS_FILE, 'w') as f:
+                json.dump(items, f, indent=2)
+            await update.message.reply_text(f"Stopped tracking '{text}'.", reply_markup=ReplyKeyboardRemove())
+        else:
+            await update.message.reply_text("Could not find that item. Maybe it was already deleted?", reply_markup=ReplyKeyboardRemove())
+            
+    else:
+        await update.message.reply_text("Invalid selection. Please try /delete again.", reply_markup=ReplyKeyboardRemove())
+
+    return ConversationHandler.END
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the conversation and asks for the link."""
@@ -39,8 +113,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "   - Select the platform (Amazon, Flipkart, Myntra).\n"
         "   - Set your target price.\n\n"
         "2. */check* - Check prices for all your items right now.\n\n"
-        "3. */cancel* - Stop whatever you're doing (like adding an item).\n\n"
-        "4. */start* - Show the welcome message.\n\n"
+        "3. */delete* - Stop tracking an item.\n\n"
+        "4. */cancel* - Stop whatever you're doing.\n\n"
+        "5. */start* - Show the welcome message.\n\n"
         "🔔 *Notifications*:\n"
         "I'll automatically check prices every 30 minutes. If a price drops below your target, I'll send you a message with the link!"
     )
@@ -189,10 +264,20 @@ def main() -> None:
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    # Delete conversation handler
+    delete_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("delete", delete_start)],
+        states={
+            DELETE_SELECT: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_handler)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("check", check_now))
     application.add_handler(conv_handler)
+    application.add_handler(delete_conv_handler)
 
     # Auto-start tracking job
     if application.job_queue:
