@@ -28,14 +28,22 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding='utf-8')
 
 def setup_logging():
+    # Create logs directory if it doesn't exist
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+        
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join("logs", f"tracker_{timestamp}.log")
+    
     logging.basicConfig(
         level=logging.INFO,
         format=LOG_FORMAT,
         handlers=[
-            logging.FileHandler("tracker.log", encoding='utf-8'),
+            logging.FileHandler(log_file, encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ],
     )
+    return log_file
 
 logger = logging.getLogger(__name__)
 
@@ -104,25 +112,31 @@ def save_history(history):
             os.remove(temp_name)
 
 
-def check_price_drop(item_name, current_price, history, threshold):
+def check_price_drop(item_name, current_price, history, threshold, notification_callback=None, item_url=None):
     """Check if price dropped and notify if target reached."""
-    if item_name not in history or not history[item_name]:
-        return
+    last_price = None
+    if item_name in history and history[item_name]:
+        last_entry = history[item_name][-1]
+        last_price = last_entry['price']
 
-    last_entry = history[item_name][-1]
-    last_price = last_entry['price']
-
-    if current_price < last_price:
+    if last_price and current_price < last_price:
         logger.info(f"📉 PRICE DROP: {item_name} | {last_price} -> {current_price}")
 
     if threshold > 0 and current_price <= threshold:
         logger.info(
             f"🔔 TARGET REACHED: {item_name} is {current_price} (Target: {threshold})"
         )
-        send_notification(
-            "🔔 Price Target Reached!",
-            f"{item_name}\n₹{current_price} (Target: ₹{threshold})",
-        )
+        if notification_callback:
+            notification_callback(
+                "🔔 Price Target Reached!",
+                f"{item_name}\n₹{current_price} (Target: ₹{threshold})",
+                item_url
+            )
+        else:
+            send_notification(
+                "🔔 Price Target Reached!",
+                f"{item_name}\n₹{current_price} (Target: ₹{threshold})",
+            )
 
 def update_price_history(item_name, price, history):
     """Update the history dictionary with new price point."""
@@ -136,7 +150,7 @@ def update_price_history(item_name, price, history):
     })
 
 
-def process_item(item, history):
+def process_item(item, history, notification_callback=None):
     """Process a single item."""
     name = item.get("name", "Unknown Item")
     url = item.get("url")
@@ -160,7 +174,7 @@ def process_item(item, history):
 
     if price:
         logger.info(f"  Price: {price}")
-        check_price_drop(name, price, history, threshold)
+        check_price_drop(name, price, history, threshold, notification_callback, url)
         update_price_history(name, price, history)
     else:
         logger.warning(f"  Could not find price for {name}")
