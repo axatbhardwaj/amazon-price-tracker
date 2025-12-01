@@ -29,23 +29,36 @@ def get_price(soup):
         element = soup.select_one(selector)
         if not element:
             continue
-        price = parse_price_text(element.get_text())
+        price_text = element.get_text()
+        logger.debug(f"Found price element with selector '{selector}': {price_text.strip()}")
+        price = parse_price_text(price_text)
         if price:
+            logger.info(f"Successfully extracted price: {price}")
             return price
+    logger.warning("No price selectors matched.")
     return None
 
 def fetch_amazon_price(url, max_retries=5):
     """Fetch page content and extract price with exponential backoff."""
+    logger.info(f"Fetching Amazon URL: {url}")
     for attempt in range(max_retries):
         error_reason = None
         try:
             response = requests.get(url, headers=get_headers(), timeout=30)
+            logger.info(f"Response Status: {response.status_code}")
 
             if response.status_code == 200:
+                logger.debug("Parsing HTML with BeautifulSoup...")
                 soup = BeautifulSoup(response.content, "lxml")
                 price = get_price(soup)
                 if price:
                     return price
+                
+                # Debug: Save HTML to file if price not found
+                with open("debug_amazon.html", "w", encoding="utf-8") as f:
+                    f.write(soup.prettify())
+                logger.warning("Price not found. Saved HTML to debug_amazon.html")
+                
                 error_reason = "Price element not found in HTML (selectors didn't match)"
             elif response.status_code == 503:
                 error_reason = "503 Service Unavailable (Amazon blocking)"
@@ -66,8 +79,9 @@ def fetch_amazon_price(url, max_retries=5):
             error_reason = f"Request error: {e}"
 
         if attempt < max_retries - 1:
-            wait_time = (2**attempt) + random.random()
-            logger.warning(f"  {error_reason}. Retry {attempt + 1}/{max_retries} in {wait_time:.1f}s...")
+            # Exponential backoff with jitter: 2, 4, 8, 16, 32 seconds + random
+            wait_time = (2 ** (attempt + 1)) + random.uniform(1, 3)
+            logger.warning(f"  Price element not found in HTML (selectors didn't match). Retry {attempt + 1}/{max_retries} in {wait_time:.1f}s...")
             time.sleep(wait_time)
         else:
             logger.error(f"  Failed after {max_retries} attempts: {error_reason}")

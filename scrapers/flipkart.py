@@ -9,14 +9,18 @@ logger = logging.getLogger(__name__)
 
 def fetch_flipkart_price(url, max_retries=5):
     """Fetch price from Flipkart."""
+    logger.info(f"Fetching Flipkart URL: {url}")
     for attempt in range(max_retries):
         try:
             response = requests.get(url, headers=get_headers(), timeout=30)
+            logger.info(f"Response Status: {response.status_code}")
             if response.status_code == 200:
+                logger.debug("Parsing HTML with BeautifulSoup...")
                 soup = BeautifulSoup(response.content, "lxml")
                 
                 # Try JSON-LD structured data first (most reliable)
                 scripts = soup.find_all('script', type='application/ld+json')
+                logger.debug(f"Found {len(scripts)} JSON-LD scripts.")
                 for script in scripts:
                     if script.string:
                         try:
@@ -27,14 +31,17 @@ def fetch_flipkart_price(url, max_retries=5):
                                     if item.get('@type') == 'Product' and 'offers' in item:
                                         price = item['offers'].get('price')
                                         if price:
+                                            logger.info(f"Found price in JSON-LD (list): {price}")
                                             return float(price)
                             elif isinstance(data, dict):
                                 if data.get('@type') == 'Product' and 'offers' in data:
                                     price = data['offers'].get('price')
                                     if price:
+                                        logger.info(f"Found price in JSON-LD (dict): {price}")
                                         return float(price)
                                 # Direct Offer type
                                 if data.get('@type') == 'Offer' and 'price' in data:
+                                    logger.info(f"Found price in JSON-LD (Offer): {data['price']}")
                                     return float(data['price'])
                         except (json.JSONDecodeError, ValueError, KeyError):
                             continue
@@ -50,17 +57,28 @@ def fetch_flipkart_price(url, max_retries=5):
                 for selector in price_selectors:
                     element = soup.select_one(selector)
                     if element:
-                        price = parse_price_text(element.get_text())
+                        price_text = element.get_text()
+                        logger.debug(f"Found price element with selector '{selector}': {price_text}")
+                        price = parse_price_text(price_text)
                         if price:
+                            logger.info(f"Successfully extracted price: {price}")
                             return price
                 
                 logger.warning("  Price not found in Flipkart page.")
+                error_reason = "Price not found"
             else:
                 logger.warning(f"  HTTP {response.status_code}")
+                error_reason = f"HTTP {response.status_code}"
         except requests.RequestException as e:
             logger.warning(f"  Request error: {e}")
+            error_reason = f"Request error: {e}"
 
         if attempt < max_retries - 1:
-            time.sleep(2)
+            # Exponential backoff with jitter: 2, 4, 8, 16, 32 seconds + random
+            wait_time = (2 ** (attempt + 1)) + random.uniform(1, 3)
+            logger.warning(f"  {error_reason}. Retry {attempt + 1}/{max_retries} in {wait_time:.1f}s...")
+            time.sleep(wait_time)
+        else:
+            logger.warning(f"  Max retries ({max_retries}) reached for {url}.")
             
     return None
