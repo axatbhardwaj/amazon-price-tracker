@@ -29,7 +29,7 @@ run-bot:
 	uv run python bot.py
 
 test:
-	uv run pytest
+	uv run pytest tests/
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
