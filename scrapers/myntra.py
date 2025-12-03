@@ -1,4 +1,5 @@
 import requests
+from curl_cffi import requests as cffi_requests
 import time
 import random
 import json
@@ -26,10 +27,18 @@ def fetch_myntra_price(url, max_retries=5):
     logger.info(f"Fetching Myntra URL: {url}")
     for attempt in range(max_retries):
         try:
-            headers = get_headers()
-            headers["Referer"] = "https://www.google.com/"
-            # Increase timeout to 60s to avoid read timeouts
-            response = requests.get(url, headers=headers, timeout=60)
+            # Use curl_cffi to impersonate a browser
+            response = cffi_requests.get(
+                url, 
+                impersonate="chrome124", 
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://www.google.com/"
+                },
+                timeout=60
+            )
             logger.info(f"Response Status: {response.status_code}")
             if response.status_code == 200:
                 logger.debug("Parsing HTML with BeautifulSoup...")
@@ -81,7 +90,7 @@ def fetch_myntra_price(url, max_retries=5):
             else:
                 logger.warning(f"  HTTP {response.status_code}")
                 error_reason = f"HTTP {response.status_code}" # Set error reason
-        except requests.RequestException as e:
+        except (requests.RequestException, cffi_requests.RequestsError) as e:
             logger.warning(f"  Request error: {e}")
             error_reason = f"Request error: {e}" # Set error reason
 

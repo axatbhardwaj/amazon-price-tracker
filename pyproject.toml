@@ -10,6 +10,7 @@ dependencies = [
     "lxml>=5.1.0",
     "python-telegram-bot[job-queue]>=20.0",
     "python-dotenv>=1.0.0",
+    "curl-cffi>=0.5.10",
 ]
 
 [project.optional-dependencies]
