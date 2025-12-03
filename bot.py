@@ -37,9 +37,28 @@ async def delete_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
         
     context.user_data["user_items"] = user_items
+    context.user_data["delete_map"] = {}
     
     # Create buttons for each item
-    keyboard = [[f"{item['name']}"] for _, item in user_items]
+    keyboard = []
+    for _, item in user_items:
+        name = item['name']
+        # Create a shorter label for the button to avoid truncation issues
+        if len(name) > 50:
+            display_name = name[:47] + "..."
+        else:
+            display_name = name
+            
+        # Ensure unique display names
+        original_display_name = display_name
+        counter = 1
+        while display_name in context.user_data["delete_map"]:
+            display_name = f"{original_display_name} ({counter})"
+            counter += 1
+            
+        context.user_data["delete_map"][display_name] = name
+        keyboard.append([display_name])
+        
     keyboard.append(["Cancel"])
     
     await update.message.reply_text(
@@ -55,29 +74,25 @@ async def delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Operation cancelled.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
         
-    user_items = context.user_data.get("user_items", [])
+    # Resolve the full name from the display name
+    delete_map = context.user_data.get("delete_map", {})
+    target_name = delete_map.get(text)
     
-    # Find the selected item
-    selected_index = -1
-    for index, item in user_items:
-        if item["name"] == text:
-            selected_index = index
-            break
-            
-    if selected_index != -1:
-        # We need to be careful about indices shifting if multiple users delete at once, 
-        # but for this simple file-based approach, we'll reload and check.
-        # Actually, let's use the delete_item function we added to tracker.py
-        # But wait, delete_item takes an index. If the file changed, the index might be wrong.
-        # A safer way is to load, find by matching all fields, and delete.
-        
-        # Let's do it safely here
+    # Fallback: check if the user provided the exact full name
+    if not target_name:
+        user_items = context.user_data.get("user_items", [])
+        for _, item in user_items:
+            if item["name"] == text:
+                target_name = text
+                break
+    
+    if target_name:
         items = load_items()
         # Find the item that matches exactly
         found = False
         for i, item in enumerate(items):
             # Check if it matches the one we selected (using name and user_id should be enough for now)
-            if item.get("name") == text and item.get("user_id") == update.effective_chat.id:
+            if item.get("name") == target_name and item.get("user_id") == update.effective_chat.id:
                 items.pop(i)
                 found = True
                 break
@@ -85,7 +100,7 @@ async def delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if found:
             with open(ITEMS_FILE, 'w') as f:
                 json.dump(items, f, indent=2)
-            await update.message.reply_text(f"Stopped tracking '{text}'.", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text(f"Stopped tracking '{target_name}'.", reply_markup=ReplyKeyboardRemove())
         else:
             await update.message.reply_text("Could not find that item. Maybe it was already deleted?", reply_markup=ReplyKeyboardRemove())
             
@@ -415,7 +430,13 @@ def main() -> None:
         logger.error("TELEGRAM_TOKEN environment variable not set.")
         return
 
-    application = Application.builder().token(token).build()
+    # Initialize application
+    request_kwargs = {
+        'connect_timeout': 10.0,
+        'read_timeout': 10.0,
+        'write_timeout': 10.0,
+    }
+    application = Application.builder().token(token).connect_timeout(30).read_timeout(30).write_timeout(30).build()
 
     # Add conversation handler
     conv_handler = ConversationHandler(

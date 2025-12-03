@@ -9,7 +9,7 @@ import tempfile
 import shutil
 import subprocess
 import platform
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from scrapers import (
     fetch_amazon_price,
     fetch_flipkart_price,
@@ -20,6 +20,15 @@ from scrapers import (
 ITEMS_FILE = "items.json"
 HISTORY_FILE = "price_history.json"
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
+# Custom Formatter for IST
+class ISTFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        utc_time = datetime.fromtimestamp(record.created, timezone.utc)
+        ist_time = utc_time + timedelta(hours=5, minutes=30)
+        if datefmt:
+            return ist_time.strftime(datefmt)
+        return ist_time.strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
 
 # Setup logging
 # Force UTF-8 for stdout/stderr to avoid UnicodeEncodeError on Windows
@@ -32,16 +41,21 @@ def setup_logging():
     if not os.path.exists("logs"):
         os.makedirs("logs")
         
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join("logs", f"tracker_{timestamp}.log")
+    timestamp = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    timestamp_str = timestamp.strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join("logs", f"tracker_{timestamp_str}.log")
+    
+    formatter = ISTFormatter(LOG_FORMAT)
+    
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
     
     logging.basicConfig(
         level=logging.INFO,
-        format=LOG_FORMAT,
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ],
+        handlers=[file_handler, stream_handler],
     )
     return log_file
 

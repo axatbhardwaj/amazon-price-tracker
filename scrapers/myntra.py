@@ -1,5 +1,6 @@
 import requests
 import time
+import random
 import json
 import logging
 from bs4 import BeautifulSoup
@@ -25,7 +26,10 @@ def fetch_myntra_price(url, max_retries=5):
     logger.info(f"Fetching Myntra URL: {url}")
     for attempt in range(max_retries):
         try:
-            response = requests.get(url, headers=get_headers(), timeout=30)
+            headers = get_headers()
+            headers["Referer"] = "https://www.google.com/"
+            # Increase timeout to 60s to avoid read timeouts
+            response = requests.get(url, headers=headers, timeout=60)
             logger.info(f"Response Status: {response.status_code}")
             if response.status_code == 200:
                 logger.debug("Parsing HTML with BeautifulSoup...")
