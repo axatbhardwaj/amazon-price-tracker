@@ -331,14 +331,61 @@ async def check_prices(context: ContextTypes.DEFAULT_TYPE):
     await run_tracking_cycle(context.application)
 
 async def check_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually trigger a price check."""
-    await update.message.reply_text("Checking prices now...")
-    try:
-        await run_tracking_cycle(context.application)
-        await update.message.reply_text("Price check complete.")
-    except Exception as e:
-        logger.error(f"Error during manual check: {e}")
-        await update.message.reply_text("An error occurred during the price check.")
+    """Manually trigger a price check for the requesting user and report current prices."""
+    user_id = update.effective_chat.id
+    items = load_items()
+    user_items = [item for item in items if item.get("user_id") == user_id]
+
+    if not user_items:
+        await update.message.reply_text("You are not tracking any items.")
+        return
+
+    await update.message.reply_text(f"Checking prices for your {len(user_items)} items...")
+    
+    history = load_history()
+    loop = asyncio.get_running_loop()
+    
+    report_lines = []
+    
+    for item in user_items:
+        name = item.get("name", "Unknown")
+        threshold = item.get("threshold", 0.0)
+        
+        try:
+            # Run process_item in executor to avoid blocking
+            # We pass notification_callback=None because we want to build a summary report instead of individual alerts
+            current_price = await loop.run_in_executor(
+                None,
+                lambda: process_item(item, history, notification_callback=None)
+            )
+            
+            if current_price is not None:
+                status_emoji = "✅" if current_price <= threshold else "👀"
+                report_lines.append(f"{status_emoji} *{name}*\n   Current: ₹{current_price} (Target: ₹{threshold})")
+            else:
+                report_lines.append(f"⚠️ *{name}*\n   Could not fetch price.")
+                
+        except Exception as e:
+            logger.error(f"Error checking {name}: {e}")
+            report_lines.append(f"❌ *{name}*\n   Error checking price.")
+
+    save_history(history)
+    
+    # Send summary
+    if report_lines:
+        report_text = "📋 *Price Check Report*\n\n" + "\n\n".join(report_lines)
+        # Split if too long (Telegram limit is 4096)
+        if len(report_text) > 4000:
+            # Simple split for now
+            mid = len(report_lines) // 2
+            part1 = "📋 *Price Check Report (1/2)*\n\n" + "\n\n".join(report_lines[:mid])
+            part2 = "📋 *Price Check Report (2/2)*\n\n" + "\n\n".join(report_lines[mid:])
+            await update.message.reply_text(part1, parse_mode="Markdown")
+            await update.message.reply_text(part2, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(report_text, parse_mode="Markdown")
+    else:
+         await update.message.reply_text("No items checked.")
 
 
 async def send_heartbeat(context: ContextTypes.DEFAULT_TYPE):

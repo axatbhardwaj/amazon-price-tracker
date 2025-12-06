@@ -211,8 +211,11 @@ def process_item(item, history, notification_callback=None):
         logger.info(f"  Price: {price}")
         check_price_drop(item, price, history, notification_callback)
         update_price_history(name, price, history)
+        return price
     else:
         logger.warning(f"  Could not find price for {name}")
+        return None
+
 
 
 def run_tracker():
